@@ -4,10 +4,11 @@
 #include <geometry_msgs/msg/pose2_d.hpp>
 #include <vector>
 #include "utils.hpp"
+#include "controllers/controller_debug.hpp"
 
 // Pure Pursuit controller — geometric path tracker.
 // Call computeVelocityCommands() at ~20 Hz. All waypoints are in the world frame.
-class PurePursuitController
+class PurePursuitController : public ControllerDebug
 {
 public:
     PurePursuitController() = default;

@@ -4,10 +4,11 @@
 #include <geometry_msgs/msg/pose2_d.hpp>
 #include <vector>
 #include "utils.hpp"  // wrapToPi
+#include "controllers/controller_debug.hpp"
 
 // RTR (Rotate-Translate-Rotate) PID controller.
 // Follows a queue of 2D waypoints. Call computeVelocityCommands() at 20 Hz (every 50 ms).
-class RTRController
+class RTRController : public ControllerDebug
 {
 public:
     RTRController() = default;

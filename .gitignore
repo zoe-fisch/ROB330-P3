@@ -1,0 +1,7 @@
+# colcon build artifacts
+build/
+install/
+log/
+
+# CSV logs produced by controller_node
+*.csv

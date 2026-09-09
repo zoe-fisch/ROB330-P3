@@ -4,10 +4,11 @@
 #include <geometry_msgs/msg/pose2_d.hpp>
 #include <vector>
 #include "utils.hpp"
+#include "controllers/controller_debug.hpp"
 
 // ExampleController — starter template for implementing a custom controller.
 // TODO: Replace the placeholder bodies in example_controller.cpp with your algorithm.
-class ExampleController
+class ExampleController : public ControllerDebug
 {
 public:
     ExampleController() = default;

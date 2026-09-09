@@ -35,6 +35,7 @@ void RTRController::setPlan(const std::vector<geometry_msgs::msg::Pose2D>& waypo
 geometry_msgs::msg::Twist RTRController::computeVelocityCommands(double x, double y, double theta)
 {
     geometry_msgs::msg::Twist cmd;
+    clearDebug();
     if (!goal_received_) return cmd;
 
     double dx           = goal_x_ - x;
@@ -61,6 +62,13 @@ geometry_msgs::msg::Twist RTRController::computeVelocityCommands(double x, doubl
     // Safety limits
     cmd.linear.x  = std::clamp(cmd.linear.x,  -0.3, 0.3);
     cmd.angular.z = std::clamp(cmd.angular.z, -1.0, 1.0);
+
+    // Hand this tick's errors to ControllerNode for /debug_cmd_vel and the CSV log.
+    // signed_distance_error is the goal offset projected onto the robot heading.
+    double signed_distance_error = dx * std::cos(theta) + dy * std::sin(theta);
+    recordDebug(dist_error, signed_distance_error, angle_error, target_angle,
+                goal_x_, goal_y_);
+
     return cmd;
 }
 
