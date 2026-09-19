@@ -52,7 +52,7 @@ void RTRController::setPlan(
     if (!goal_queue_.empty())
     {
         goal_x_ = goal_queue_.front().x;
-        goal_y_ = oal_queue_.front().y;
+        goal_y_ = goal_queue_.front().y;
         goal_theta_ = goal_queue_.front().theta;
         goal_queue_.erase(goal_queue_.begin());
         goal_received_ = true;
