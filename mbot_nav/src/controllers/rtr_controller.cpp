@@ -60,7 +60,7 @@ void RTRController::setPlan(
         resetPID();
 
         RCLCPP_INFO(
-            clcpp::get_logger("rtr_controller"),
+            rclcpp::get_logger("rtr_controller"),
             "Starting goal: x=%.2f y=%.2f theta=%.2f",
             goal_x_,
             goal_y_,
