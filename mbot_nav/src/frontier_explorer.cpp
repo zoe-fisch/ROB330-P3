@@ -14,8 +14,10 @@ std::optional<geometry_msgs::msg::Pose2D> FrontierExplorer::selectGoal(
 
     // Detect frontier cells
     auto raw_frontiers = detectFrontiers(robot_gx, robot_gy, dist_grid);
+    last_raw_frontiers_ = raw_frontiers;
 
     if (raw_frontiers.empty()) {
+        last_clustered_frontiers_.clear();  // Don't keep showing old clusters
         RCLCPP_INFO(rclcpp::get_logger("frontier_explorer"), "No frontiers found");
         return std::nullopt;
     }
@@ -24,6 +26,7 @@ std::optional<geometry_msgs::msg::Pose2D> FrontierExplorer::selectGoal(
 
     // Cluster frontiers by distance
     auto clustered = clusterFrontiers(raw_frontiers);
+    last_clustered_frontiers_ = clustered;
 
     // Pick the closest frontier cluster
     double closest_distance = std::numeric_limits<double>::max();
