@@ -51,8 +51,26 @@ void ObstacleDistanceGrid::computeDistances()
         }
     }
 
-    // TODO: here we calcualte the obstable distance map distances_ based on occupancy grid
-    //       we will use this obstable distance map in path planning
-    //       to quickly assign costs to cells along the path
+    const int dx[4] = {-1, 1, 0, 0};
+    const int dy[4] = {0, 0, -1, 1};
+
+    while (!queue.empty()) {
+        GridCell cell = queue.front();
+        queue.pop();
+
+        float nextDistance = getDistance(cell.x, cell.y) + resolution_;
+
+        for (int i = 0; i < 4; ++i) {
+            int nx = cell.x + dx[i];
+            int ny = cell.y + dy[i];
+            if (!isCellInGrid(nx, ny)) continue;
+
+            int idx = ny * width_ + nx;
+            if (nextDistance < distances_[idx]) {
+                distances_[idx] = nextDistance;
+                queue.emplace(nx, ny);
+            }
+        }
+    }
 }
 
