@@ -71,14 +71,20 @@ std::vector<geometry_msgs::msg::Point> FrontierExplorer::detectFrontiers(
     int robot_gx, int robot_gy,
     const ObstacleDistanceGrid &dist_grid)
 {
-    int width = dist_grid.getWidth();
-    int height = dist_grid.getHeight();
+    // This version scans the whole map.
+    (void)robot_gx;
+    (void)robot_gy;
+
     std::vector<geometry_msgs::msg::Point> frontier_points;
 
-    // TODO: How would you define and find frontiers
-    // use isFrontierCell()
-    (void)robot_gx; (void)robot_gy;
-    (void) width; (void)height;
+    for (int y = 0; y < dist_grid.getHeight(); ++y) {
+        for (int x = 0; x < dist_grid.getWidth(); ++x) {
+            if (isFrontierCell(x, y, dist_grid) &&
+                dist_grid.getDistance(x, y) >= robot_clearance) {
+                frontier_points.push_back(gridToWorld(x, y, dist_grid));
+            }
+        }
+    }
 
     return frontier_points;
 }
@@ -86,13 +92,49 @@ std::vector<geometry_msgs::msg::Point> FrontierExplorer::detectFrontiers(
 std::vector<geometry_msgs::msg::Point> FrontierExplorer::clusterFrontiers(
     const std::vector<geometry_msgs::msg::Point> &frontiers)
 {
-    if (frontiers.empty()) return {};
-    
     std::vector<geometry_msgs::msg::Point> centroids;
+    std::vector<bool> visited(frontiers.size(), false);
 
-    // TODO: we cluster frontiers to centroids and return the vector
-    geometry_msgs::msg::Point centroid;
-    centroids.push_back(centroid);
+    for (std::size_t start = 0; start < frontiers.size(); ++start) {
+        if (visited[start]) continue;
+
+        std::queue<std::size_t> pending;
+        pending.push(start);
+        visited[start] = true;
+
+        double sum_x = 0.0;
+        double sum_y = 0.0;
+        std::size_t count = 0;
+
+        // Grow this cluster from each newly discovered member.
+        while (!pending.empty()) {
+            const auto current = pending.front();
+            pending.pop();
+
+            const auto &point = frontiers[current];
+            sum_x += point.x;
+            sum_y += point.y;
+            ++count;
+
+            for (std::size_t i = 0; i < frontiers.size(); ++i) {
+                if (visited[i]) continue;
+
+                const double dx = frontiers[i].x - point.x;
+                const double dy = frontiers[i].y - point.y;
+
+                if (std::hypot(dx, dy) <= max_cluster_link_distance) {
+                    visited[i] = true;
+                    pending.push(i);
+                }
+            }
+        }
+
+        geometry_msgs::msg::Point centroid;
+        centroid.x = sum_x / count;
+        centroid.y = sum_y / count;
+        centroid.z = 0.0;
+        centroids.push_back(centroid);
+    }
 
     return centroids;
 }
