@@ -98,6 +98,14 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
                 pose.y = y * res + origin_y;
                 // TODO: how do we determine the heading?
                 // pose.theta = ?
+                // fix 
+                if (i + 1 < waypoints_idx.size()) {
+                    const auto& [next_x, next_y] = waypoints_idx[i + 1]; // fix
+                    pose.theta = std::atan2(next_y - y, next_x - x);
+                } 
+                else {
+                    pose.theta = goal.theta;  
+                }
                 raw_path.poses.push_back(pose);
             }
             path = smoothPath(dist_grid, raw_path);
@@ -110,23 +118,48 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
 
             // TODO: check neighbors, calcualte costs, then update cost_so_far, came_from, and open
             // hints: utilize dist_grid.getDistance() and dist_grid.getOccupancy()
-            (void)nx; (void)ny;
+            
+            int neighbor = toIndex(nx, ny, width);
+            double cost;
+            if (offset.x != 0 && offset.y != 0) {
+                cost = 1.4;
+            } 
+            else {
+                cost = 1;
+            }
+            double updated_cost = cost_so_far[curr_idx] + cost;
+            bool not_seen_yet = cost_so_far.count(neighbor) == 0;
+            if (not_seen_yet || updated_cost < cost_so_far[neighbor]) {
+                cost_so_far[neighbor] = updated_cost;
+                came_from[neighbor] = curr_idx;
+                open.push({nx, ny, updated_cost, heuristic(nx, ny, goal_x, goal_y)});
+            }
+        
         }
     }
 
     return false;
 }
 
-mbot_interfaces::msg::Pose2DArray AStarPlanner::smoothPath(
-    const ObstacleDistanceGrid& dist_grid, const mbot_interfaces::msg::Pose2DArray& raw_path)
-{
+// fix 
+mbot_interfaces::msg::Pose2DArray AStarPlanner::smoothPath(const ObstacleDistanceGrid& dist_grid, const mbot_interfaces::msg::Pose2DArray& raw_path) {
     mbot_interfaces::msg::Pose2DArray pruned;
-    if (raw_path.poses.empty()) return pruned;
-
-    // TODO: to make the robot driving smoothly, we need to prune the waypoints are too close to each other
-    // How do we know which waypoints can be pruned?
-    // If waypoint 1 to waypoint 10 has not obstacle between them, then waypoints 2-9 can all be pruned
-    // Hint: use isLineFree()
-    (void)dist_grid;
+    if (raw_path.poses.empty()) {
+        return pruned;
+    }
+    pruned.poses.push_back(raw_path.poses[0]);
+    size_t current = 0;
+    while (current + 1 < raw_path.poses.size()) {
+        size_t farthest = current + 1;
+        for (size_t candidate = current + 1; candidate < raw_path.poses.size(); ++candidate) {
+            const geometry_msgs::msg::Pose2D& from = raw_path.poses[current];
+            const geometry_msgs::msg::Pose2D& to = raw_path.poses[candidate];
+            if (isLineFree(dist_grid, from.x, from.y, to.x, to.y)) {
+                farthest = candidate;
+            }
+        }
+        pruned.poses.push_back(raw_path.poses[farthest]);
+        current = farthest;
+    }
     return pruned;
 }
