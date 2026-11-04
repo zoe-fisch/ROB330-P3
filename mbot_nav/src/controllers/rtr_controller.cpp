@@ -110,7 +110,6 @@ RTRController::computeVelocityCommands(double x, double y, double theta)
          // hint: lin_error_sum_ relates to p gain
          //       lin_error_last_ relates to i gain
          //       for d gain, you need to calculate the derivative. dt_ also defined in the header file
-     }
     // Hint: if dist_error is greater than dist_thresh_ AND if the angle_error is larger than a threshold, apply angular PID, return cmd;
 
     // if ((dist_error > dist_thresh_) && (std::fabs(angle_error) > angle_thresh_))

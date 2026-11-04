@@ -31,6 +31,10 @@ private:
     static constexpr double dt_              = 0.05;   // 50 ms control period
     static constexpr double integral_limit_  = 1.0;
 
+    // Used by applyRotationDeadband() (rad/s)
+    static constexpr double min_rotation_speed_ = 0.2;
+    static constexpr double max_angular_speed_  = 1.0;
+
     // PID gains
     static constexpr double Kp_lin = 1.0, Ki_lin = 0.0, Kd_lin = 0.01;
     static constexpr double Kp_ang = 1.0, Ki_ang = 0.0, Kd_ang = 0.05;
@@ -39,6 +43,7 @@ private:
     double lin_error_sum_{0}, lin_error_last_{0};
     double ang_error_sum_{0}, ang_error_last_{0};
     
+    double applyRotationDeadband(double angular_velocity) const;
     void resetPID();
     void loadNextGoal();
 };
