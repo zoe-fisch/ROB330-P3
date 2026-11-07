@@ -20,6 +20,13 @@ void OccupancyGrid::markCellOccupied(int x, int y)
         // log_odds_[idx] = ???
         // kHitLogOdds defined in mapping.hpp, you need to tune the parameters there
         // Why we need kMinLogOdds and kMaxLogOdds? <- think about it and tune these values
+        log_odds_[idx] += kHitLogOdds;
+        if (log_odds_[idx] > kMaxLogOdds){
+            log_odds_[idx] = kMaxLogOdds;
+        }
+        else if (log_odds_[idx] < kMinLogOdds){
+            log_odds_[idx] = kMinLogOdds;
+        }
     }
 }
 
@@ -33,6 +40,13 @@ void OccupancyGrid::markCellFree(int x, int y)
         // log_odds_[idx] = ???
         // kMissLogOdds defined in mapping.hpp, you need to tune the parameters there
         // Why we need kMinLogOdds and kMaxLogOdds? <- think about it and tune these values
+        log_odds_[idx] += kMissLogOdds;
+        if (log_odds_[idx] > kMaxLogOdds){
+            log_odds_[idx] = kMaxLogOdds;
+        }
+        else if (log_odds_[idx] < kMinLogOdds){
+            log_odds_[idx] = kMinLogOdds;
+        }
     }
 }
 
