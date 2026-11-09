@@ -99,9 +99,9 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
                 // TODO: how do we determine the heading?
                 // pose.theta = ?
                 // fix 
-                if (i + 1 < waypoints_idx.size()) {
-                    const auto& [next_x, next_y] = waypoints_idx[i + 1]; // fix
-                    pose.theta = std::atan2(next_y - y, next_x - x);
+                if (i < waypoints_idx.size() - 1) {
+                    const std::pair<int, int>& next = waypoints_idx[i + 1];
+                    pose.theta = std::atan2(next.second - y, next.first - x);
                 } 
                 else {
                     pose.theta = goal.theta;  
@@ -118,7 +118,33 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
 
             // TODO: check neighbors, calcualte costs, then update cost_so_far, came_from, and open
             // hints: utilize dist_grid.getDistance() and dist_grid.getOccupancy()
-            
+            if (!dist_grid.isCellInGrid(nx, ny)){
+                continue;
+            }
+            if (dist_grid.getOccupancy(nx, ny) != 0){
+                continue;
+            }
+
+            if (dist_grid.getDistance(nx, ny) < inflation_radius_){
+                continue;
+            }
+            if (offset.x != 0 && offset.y != 0) {
+                if (!dist_grid.isCellInGrid(current.x + offset.x, current.y) ||
+                    !dist_grid.isCellInGrid(current.x, current.y + offset.y)) {
+                    continue;
+                }
+
+                if (dist_grid.getOccupancy(current.x + offset.x, current.y) != 0 ||
+                    dist_grid.getOccupancy(current.x, current.y + offset.y) != 0) {
+                    continue;
+                }
+
+                if (dist_grid.getDistance(current.x + offset.x, current.y) < inflation_radius_ ||
+                    dist_grid.getDistance(current.x, current.y + offset.y) < inflation_radius_) {
+                    continue;
+                }
+            }
+            int neighbor = toIndex(nx, ny, width);
             double cost;
             if (!dist_grid.isCellInGrid(nx, ny)) {
                 continue;
@@ -139,7 +165,7 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
             int neighbor = toIndex(nx, ny, width);
 
             if (offset.x != 0 && offset.y != 0) {
-                cost = 1.4;
+                cost = std::sqrt(2.0f);
             } 
             else {
                 cost = 1;
@@ -149,7 +175,7 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
             if (not_seen_yet || updated_cost < cost_so_far[neighbor]) {
                 cost_so_far[neighbor] = updated_cost;
                 came_from[neighbor] = curr_idx;
-                open.push({nx, ny, updated_cost, heuristic(nx, ny, goal_x, goal_y)});
+                open.push({nx, ny, updated_cost, updated_cost + heuristic(nx, ny, goal_x, goal_y)});
             }
         
         }
@@ -166,7 +192,7 @@ mbot_interfaces::msg::Pose2DArray AStarPlanner::smoothPath(const ObstacleDistanc
     }
     pruned.poses.push_back(raw_path.poses[0]);
     size_t current = 0;
-    while (current + 1 < raw_path.poses.size()) {
+    while (current < raw_path.poses.size() - 1) {
         size_t farthest = current + 1;
         for (size_t candidate = current + 1; candidate < raw_path.poses.size(); ++candidate) {
             const geometry_msgs::msg::Pose2D& from = raw_path.poses[current];
