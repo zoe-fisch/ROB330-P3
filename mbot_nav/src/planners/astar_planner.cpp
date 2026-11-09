@@ -94,8 +94,8 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
                 const auto& [x, y] = waypoints_idx[i];
                 // generate world frame pose
                 geometry_msgs::msg::Pose2D pose;
-                pose.x = x * res + origin_x;
-                pose.y = y * res + origin_y;
+                pose.x = (x + 0.5f) * res + origin_x;
+                pose.y = (y + 0.5f) * res + origin_y;
                 // TODO: how do we determine the heading?
                 // pose.theta = ?
                 // fix 
@@ -119,8 +119,25 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
             // TODO: check neighbors, calcualte costs, then update cost_so_far, came_from, and open
             // hints: utilize dist_grid.getDistance() and dist_grid.getOccupancy()
             
-            int neighbor = toIndex(nx, ny, width);
             double cost;
+            if (!dist_grid.isCellInGrid(nx, ny)) {
+                continue;
+            }
+
+            if (dist_grid.getDistance(nx, ny) < 0.15f) {
+                continue;
+            }
+
+            // fix
+            if (offset.x != 0 && offset.y != 0) {
+                if (dist_grid.getDistance(current.x + offset.x, current.y) < 0.15f ||
+                    dist_grid.getDistance(current.x, current.y + offset.y) < 0.15f) {
+                    continue;
+                }
+            }
+
+            int neighbor = toIndex(nx, ny, width);
+
             if (offset.x != 0 && offset.y != 0) {
                 cost = 1.4;
             } 
