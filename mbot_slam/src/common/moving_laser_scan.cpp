@@ -1,11 +1,12 @@
 #include "common/moving_laser_scan.hpp"
 #include "common/utils.hpp"
 #include <cmath>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 // Linear interpolation for geometry_msgs::msg::Point
 inline geometry_msgs::msg::Point linearInterpolatePoint(const geometry_msgs::msg::Point& a,
                                            const geometry_msgs::msg::Point& b,
-                                           float t)
+                                           double t)
 {
     geometry_msgs::msg::Point out;
     out.x = a.x + t * (b.x - a.x);
@@ -14,6 +15,28 @@ inline geometry_msgs::msg::Point linearInterpolatePoint(const geometry_msgs::msg
     return out;
 }
 
+
+namespace {
+MovingLaserScan::Pose toPose(const tf2::Transform& transform)
+{
+    MovingLaserScan::Pose pose;
+    pose.position.x = transform.getOrigin().x();
+    pose.position.y = transform.getOrigin().y();
+    pose.position.z = transform.getOrigin().z();
+    pose.orientation = tf2::toMsg(transform.getRotation());
+    return pose;
+}
+}
+
+MovingLaserScan::MovingLaserScan(const sensor_msgs::msg::LaserScan& scan,
+                                 const RelativePoses& relative_poses,
+                                 const Pose& base_end_pose)
+{
+    tf2::Transform world_from_base;
+    tf2::fromMsg(base_end_pose, world_from_base);
+    deskewScan(scan, toPose(world_from_base * relative_poses.start),
+                     toPose(world_from_base * relative_poses.end));
+}
 
 MovingLaserScan::MovingLaserScan(const sensor_msgs::msg::LaserScan& scan,
                                  const Pose& start_pose,
@@ -30,43 +53,29 @@ void MovingLaserScan::deskewScan(const sensor_msgs::msg::LaserScan& scan,
     rays_.clear();
     rays_.reserve(num_rays);
 
-    // Extract yaw from quaternions (world-frame base yaw at scan start/end)
-    const double yaw_start = yawFromQuaternion(start_pose.orientation);
-    const double yaw_end = yawFromQuaternion(end_pose.orientation);
-    
-    // TODO: Calculate how much the robot body has rotated in total - delta_yaw
-    double delta_yaw = wrapToPi(yaw_end - yaw_start);
-    
-    // Iterate over all beams
-    for (size_t i = 0; i < num_rays; ++i)
-    {
-        const float range = scan.ranges[i];
+    if (!std::isfinite(scan.range_max) || scan.range_max <= 0.0f ||
+        !std::isfinite(scan.angle_min) || !std::isfinite(scan.angle_increment)) {
+        return;
+    }
 
-        // Drop garbage / under-range / out-of-range
-        if (std::isnan(range) || range < scan.range_min || range > scan.range_max) {
+    const double yaw_start = yawFromQuaternion(start_pose.orientation);
+    const double delta_yaw = angleDiff(yawFromQuaternion(end_pose.orientation), yaw_start);
+
+    for (size_t i = 0; i < num_rays; ++i) {
+        const float range = scan.ranges[i];
+        // Missing returns do not establish that the full sensor range was clear.
+        if (!std::isfinite(range) || range <= 0.0f ||
+            range < scan.range_min || range >= scan.range_max) {
             continue;
         }
 
-        // TODO: Calculate how much this ray has rotated - delta_lidar
-        // Hint: To calculate delta_lidar, check LiDAR Scan’s ROS message type “sensor_msgs/LaserScan” 
-
-        double delta_lidar = i * scan.angle_increment + scan.angle_min;
-
-        // TODO: ray.theta = delta_lidar + a fraction of delta_yaw
-        double fraction_of_delta_yaw;
-        if (num_rays > 1){
-            fraction_of_delta_yaw = float(i) / float(num_rays - 1);
-        }
-        else {
-            fraction_of_delta_yaw = 0;
-        }
-
+        const double fraction = num_rays > 1 ? static_cast<double>(i) / (num_rays - 1) : 0.0;
+        const double beam_angle = scan.angle_min + i * static_cast<double>(scan.angle_increment);
 
         InterpolatedRay ray;
-        ray.origin = linearInterpolatePoint(start_pose.position, end_pose.position, fraction_of_delta_yaw);
-        ray.theta  = wrapToPi(yaw_start + fraction_of_delta_yaw * delta_yaw + delta_lidar);
-        ray.range  = range;
-
+        ray.origin = linearInterpolatePoint(start_pose.position, end_pose.position, fraction);
+        ray.theta = wrapToPi(yaw_start + fraction * delta_yaw + beam_angle);
+        ray.range = range;
         rays_.push_back(ray);
     }
 }

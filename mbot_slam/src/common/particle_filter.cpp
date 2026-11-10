@@ -35,14 +35,14 @@ void ParticleFilter::initialize(const geometry_msgs::msg::Pose& pose,
 // Main update cycle
 geometry_msgs::msg::Pose ParticleFilter::update(const nav_msgs::msg::Odometry&     odom,
                                                 const sensor_msgs::msg::LaserScan& scan,
+                                                const MovingLaserScan::RelativePoses& scan_poses,
                                                 const nav_msgs::msg::OccupancyGrid& map)
 {
     bool moved = action_model_.processOdometry(odom);
     if (moved) {
         // only update estimate pose if the robot has moved
-        const nav2_msgs::msg::ParticleCloud parent_cloud = particle_cloud_;
         nav2_msgs::msg::ParticleCloud proposal  = action_model_.propagateParticles(particle_cloud_);
-        nav2_msgs::msg::ParticleCloud posterior = sensor_model_.weightParticles(proposal, parent_cloud, scan, map);
+        nav2_msgs::msg::ParticleCloud posterior = sensor_model_.weightParticles(proposal, scan, scan_poses, map);
         pose_estimate_  = computeEstimatePose(posterior);
         particle_cloud_ = resampleParticles(posterior);
     }
@@ -55,11 +55,20 @@ nav2_msgs::msg::ParticleCloud ParticleFilter::resampleParticles(const nav2_msgs:
     nav2_msgs::msg::ParticleCloud resampled;
     resampled.particles.reserve(num_particles_);
 
-    std::uniform_real_distribution<double> unif(0.0, 1.0 / num_particles_);
-    double random_offset = unif(random_gen);
+    if (cloud.particles.empty()) return resampled;
 
-    // TODO: resample the particles here
-    (void)random_offset; (void)cloud;
+    const double step = 1.0 / num_particles_;
+    const double offset = std::uniform_real_distribution<double>(0.0, step)(random_gen);
+    size_t index = 0;
+    double cumulative_weight = cloud.particles[index].weight;
+    for (int i = 0; i < num_particles_; ++i) {
+        const double target = offset + i * step;
+        while (target >= cumulative_weight && index + 1 < cloud.particles.size()) {
+            cumulative_weight += cloud.particles[++index].weight;
+        }
+        resampled.particles.push_back(cloud.particles[index]);
+        resampled.particles.back().weight = step;
+    }
 
     return resampled;
 }
@@ -73,19 +82,28 @@ void ParticleFilter::reinvigorateParticles(nav2_msgs::msg::ParticleCloud& cloud)
 
 geometry_msgs::msg::Pose ParticleFilter::computeEstimatePose(const nav2_msgs::msg::ParticleCloud& cloud) const
 {
-    double x=0.0, y=0.0, cos_sum=0.0, sin_sum=0.0;
+    geometry_msgs::msg::Pose est;
+    double weight_sum = 0.0;
+    double cos_sum = 0.0;
+    double sin_sum = 0.0;
 
     for (const auto& p : cloud.particles) {
         const double w = p.weight;
         const double theta = yawFromQuaternion(p.pose.orientation);
-
-        // TODO: calculate the weighted sum of the particles' pose
-        (void)x; (void)y; (void)cos_sum; (void)sin_sum; (void)w, (void)theta;
+        est.position.x += w * p.pose.position.x;
+        est.position.y += w * p.pose.position.y;
+        est.position.z += w * p.pose.position.z;
+        cos_sum += w * std::cos(theta);
+        sin_sum += w * std::sin(theta);
+        weight_sum += w;
     }
 
-    geometry_msgs::msg::Pose est;
-    // est.position.x = ?
-    // est.position.y = ?
-    // est.orientation = quaternionFromYaw(?);
+    if (weight_sum <= 0.0) return pose_estimate_;
+    est.position.x /= weight_sum;
+    est.position.y /= weight_sum;
+    est.position.z /= weight_sum;
+    est.orientation = std::hypot(cos_sum, sin_sum) > 1e-9
+        ? quaternionFromYaw(std::atan2(sin_sum, cos_sum))
+        : pose_estimate_.orientation;
     return est;
 }

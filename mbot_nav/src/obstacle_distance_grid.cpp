@@ -40,7 +40,6 @@ void ObstacleDistanceGrid::computeDistances()
 {
     std::queue<GridCell> queue;
 
-    // Step 1: Initialize queue with all occupied cells (value >= 50)
     for (int y = 0; y < height_; ++y) {
         for (int x = 0; x < width_; ++x) {
             int idx = y * width_ + x;
@@ -72,5 +71,51 @@ void ObstacleDistanceGrid::computeDistances()
             }
         }
     }
+}
+
+bool ObstacleDistanceGrid::isFree(int x, int y) const
+{
+    const int occupancy = getOccupancy(x, y);
+    return occupancy >= 0 && occupancy <= 25;
+}
+
+// Traverse the segment between cell centers, checking both sides of grid corners.
+bool ObstacleDistanceGrid::isLineFree(int x, int y, int end_x, int end_y, float clearance) const
+{
+    auto clear = [&](int cx, int cy) {
+        return isFree(cx, cy) && getDistance(cx, cy) >= clearance;
+    };
+
+    const int dx = std::abs(end_x - x);
+    const int dy = std::abs(end_y - y);
+    const int sx = (end_x > x) - (end_x < x);
+    const int sy = (end_y > y) - (end_y < y);
+    int steps_x = 0;
+    int steps_y = 0;
+
+    while (clear(x, y)) {
+        if (x == end_x && y == end_y) {
+            return true;
+        }
+
+        // Determine which grid boundary the segment crosses next.
+        const auto cross_x = (2LL * steps_x + 1) * dy;
+        const auto cross_y = (2LL * steps_y + 1) * dx;
+
+        // At an exact corner, check both side cells before moving diagonally.
+        if (cross_x == cross_y && (!clear(x + sx, y) || !clear(x, y + sy))) {
+            return false;
+        }
+        if (cross_x <= cross_y) {
+            x += sx;
+            ++steps_x;
+        }
+        if (cross_y <= cross_x) {
+            y += sy;
+            ++steps_y;
+        }
+    }
+
+    return false;
 }
 

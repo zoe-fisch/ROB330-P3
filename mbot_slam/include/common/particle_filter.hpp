@@ -29,6 +29,7 @@ public:
     // Returns best-estimate pose in the map frame
     geometry_msgs::msg::Pose update(const nav_msgs::msg::Odometry&      odom,
                                     const sensor_msgs::msg::LaserScan&  scan,
+                                    const MovingLaserScan::RelativePoses& scan_poses,
                                     const nav_msgs::msg::OccupancyGrid& map);
 
     // Getters

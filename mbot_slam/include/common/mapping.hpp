@@ -10,6 +10,7 @@ class OccupancyGrid {
 public:
     OccupancyGrid(float width_m, float height_m, float resolution, float origin_x, float origin_y);
 
+    void integrateRay(float x, float y, float theta, float range);
     void markCellOccupied(int x, int y);
     void markCellFree(int x, int y);
 

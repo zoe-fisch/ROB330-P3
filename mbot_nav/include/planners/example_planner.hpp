@@ -2,10 +2,9 @@
 
 #include "geometry_msgs/msg/pose2_d.hpp"
 #include "mbot_interfaces/msg/pose2_d_array.hpp"
-#include "obstacle_distance_grid.hpp"
+#include "planners/astar_planner.hpp"
 
-// ExamplePlanner — starter template for implementing a custom path planner.
-// TODO: Replace the placeholder body in example_planner.cpp with your algorithm.
+// Example planner that uses the obstacle-aware A* implementation.
 class ExamplePlanner
 {
 public:
@@ -18,5 +17,6 @@ public:
                   const geometry_msgs::msg::Pose2D& goal,
                   mbot_interfaces::msg::Pose2DArray& path);
 
-    // TODO: Add private helper methods and member variables here.
+private:
+    AStarPlanner planner_;
 };

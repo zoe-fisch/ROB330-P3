@@ -17,6 +17,7 @@
 #include "common/utils.hpp"
 #include "common/mapping.hpp"
 #include "common/moving_laser_scan.hpp"
+#include "common/scan_transforms.hpp"
 
 class SLAMNode final : public rclcpp::Node
 {
@@ -46,7 +47,7 @@ public:
 
         // Subscriptions
         scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            "/scan", 20,
+            "/scan", rclcpp::SensorDataQoS(),
             std::bind(&SLAMNode::scanCallback, this, std::placeholders::_1));
 
         RCLCPP_INFO(get_logger(), "SLAM node initialized. Waiting for first scan...");
@@ -74,80 +75,52 @@ private:
     nav_msgs::msg::Path est_path_;
     nav_msgs::msg::Path odom_path_;
 
-    geometry_msgs::msg::Pose prev_est_pose_;
-
     bool has_initialized_{false};
 
     // Scan callback
     void scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
+        if (scan->ranges.empty()) return;
         // Lookup odometry transform
         nav_msgs::msg::Odometry odom_msg;
+        MovingLaserScan::RelativePoses scan_poses;
         try {
-            const rclcpp::Time scan_end_time = scan->header.stamp + rclcpp::Duration::from_seconds(scan->scan_time);
+            const rclcpp::Time scan_end_time = scanLastRayTime(*scan);
             geometry_msgs::msg::TransformStamped tf_odom_base =
                 tf_buffer_->lookupTransform("odom", "base_footprint", scan_end_time,
                                             rclcpp::Duration::from_seconds(0.1));
 
+            scan_poses = lookupScanRelativePoses(*tf_buffer_, *scan, tf_odom_base);
             odom_msg.header = tf_odom_base.header;
             odom_msg.pose.pose.position.x = tf_odom_base.transform.translation.x;
             odom_msg.pose.pose.position.y = tf_odom_base.transform.translation.y;
             odom_msg.pose.pose.position.z = tf_odom_base.transform.translation.z;
             odom_msg.pose.pose.orientation = tf_odom_base.transform.rotation;
         } catch (tf2::TransformException &ex) {
-            RCLCPP_WARN(get_logger(), "Failed to lookup odom transform: %s", ex.what());
+            RCLCPP_WARN(get_logger(), "Failed to look up scan transforms: %s", ex.what());
             return;
         }
 
-        // Auto-initialize on first scan from odometry origin
         if (!has_initialized_) {
-            try {
-                // Initialize all particles at 'pose' and set the action model odometry baseline.
-                particle_filter_->initialize(odom_msg.pose.pose, odom_msg);
-
-                // Initialize grid with initial scan
-                MovingLaserScan initial_scan(*scan, odom_msg.pose.pose, odom_msg.pose.pose);
-                updateGrid(initial_scan);
-                prev_est_pose_ = odom_msg.pose.pose;
-
-                has_initialized_ = true;
-                RCLCPP_INFO(get_logger(), "Particles are initialized at odometry pose.");
-            } catch (tf2::TransformException &ex) {
-                RCLCPP_WARN(get_logger(), "Failed to lookup odom transform at init: %s", ex.what());
-                return;
-            }
-        } else {
-            const auto est_pose = particle_filter_->update(odom_msg, *scan, map_msg_);
-
-            // Interpolate the scan between the last estimate pose and current est pose
-            MovingLaserScan deskewed_scan(*scan, prev_est_pose_, est_pose);
-            updateGrid(deskewed_scan);
-            prev_est_pose_ = est_pose;
-            
-            // Broadcast map -> odom transform
-            broadcastTf(est_pose, odom_msg.pose.pose, scan->header.stamp);
-
-            // Publish pose, cloud, paths for visualization
-            publishEstPose(est_pose, scan->header.stamp);
-            publishCloud(scan->header.stamp);
-            publishEstPath(est_pose, scan->header.stamp);
-            publishOdomPath(odom_msg.pose.pose, scan->header.stamp);
+            particle_filter_->initialize(odom_msg.pose.pose, odom_msg);
+            has_initialized_ = true;
+            RCLCPP_INFO(get_logger(), "Particles are initialized at odometry pose.");
         }
+
+        const auto est_pose = particle_filter_->update(odom_msg, *scan, scan_poses, map_msg_);
+        updateGrid(MovingLaserScan(*scan, scan_poses, est_pose));
+
+        broadcastTf(est_pose, odom_msg.pose.pose, odom_msg.header.stamp);
+        publishEstPose(est_pose, odom_msg.header.stamp);
+        publishCloud(odom_msg.header.stamp);
+        publishEstPath(est_pose, odom_msg.header.stamp);
+        publishOdomPath(odom_msg.pose.pose, odom_msg.header.stamp);
     }
 
     void updateGrid(const MovingLaserScan &scan)
     {
-        for (const auto& ray : scan)
-        {
-            auto ray_cells = bresenhamRayTrace(
-                ray.origin.x, ray.origin.y, ray.theta + M_PI, ray.range, grid_); // + pi for backward mounted lidar
-            
-                if (!ray_cells.empty()) {
-                for (size_t j = 0; j + 1 < ray_cells.size(); ++j) {
-                    // TODO: we fill up the occupancy grid here
-                    // Hint: use markCellFree() or markCellOccupied()
-                }
-            }
+        for (const auto& ray : scan) {
+            grid_.integrateRay(ray.origin.x, ray.origin.y, ray.theta, ray.range);
         }
 
         // Cache the map message for the particle filter

@@ -13,7 +13,7 @@ class RTRController : public ControllerDebug
 public:
     RTRController() = default;
 
-    // Load new waypoints; skips any already within reach of (current_x, current_y)
+    // Load new waypoints; skips reached intermediate waypoints
     void setPlan(const std::vector<geometry_msgs::msg::Pose2D>& waypoints,
                  double current_x, double current_y);
 
@@ -42,6 +42,8 @@ private:
     // PID state
     double lin_error_sum_{0}, lin_error_last_{0};
     double ang_error_sum_{0}, ang_error_last_{0};
+    bool have_lin_error_{false}, have_ang_error_{false};
+    bool final_alignment_{false};
     
     double applyRotationDeadband(double angular_velocity) const;
     void resetPID();

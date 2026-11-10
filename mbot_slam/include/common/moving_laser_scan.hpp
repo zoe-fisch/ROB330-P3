@@ -3,8 +3,7 @@
 #include <vector>
 #include <geometry_msgs/msg/pose.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
-#include <tf2/utils.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2/LinearMath/Transform.h>
 
 struct InterpolatedRay
 {
@@ -17,6 +16,16 @@ class MovingLaserScan
 {
 public:
     using Pose = geometry_msgs::msg::Pose;
+
+    // Both transforms express the LiDAR pose relative to the robot base at the last ray.
+    struct RelativePoses {
+        tf2::Transform start;
+        tf2::Transform end;
+    };
+
+    MovingLaserScan(const sensor_msgs::msg::LaserScan& scan,
+                    const RelativePoses& relative_poses,
+                    const Pose& base_end_pose);
 
     MovingLaserScan(const sensor_msgs::msg::LaserScan& scan,
                     const Pose& start_pose,

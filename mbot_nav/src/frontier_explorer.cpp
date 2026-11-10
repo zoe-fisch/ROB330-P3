@@ -141,13 +141,7 @@ std::vector<geometry_msgs::msg::Point> FrontierExplorer::clusterFrontiers(
 
 bool FrontierExplorer::isFrontierCell(int x, int y, const ObstacleDistanceGrid &dist_grid)
 {
-    // Must be in bounds
-    if (!dist_grid.isCellInGrid(x, y)) {
-        return false;
-    }
-
-    // Must be a free cell (occupancy = 0)
-    if (dist_grid.getOccupancy(x, y) != 0) {
+    if (!dist_grid.isFree(x, y)) {
         return false;
     }
 

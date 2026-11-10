@@ -9,6 +9,7 @@
 
 #include "common/mapping.hpp"
 #include "common/moving_laser_scan.hpp"
+#include "common/scan_transforms.hpp"
 
 class MappingNode : public rclcpp::Node
 {
@@ -19,11 +20,8 @@ public:
       tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())),
       tf_listener_(std::make_shared<tf2_ros::TransformListener>(*tf_buffer_))
     {
-        RCLCPP_INFO(this->get_logger(), "MappingNode will start in 1 second...");
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-
         scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            "/scan", 10, std::bind(&MappingNode::scanCallback, this, std::placeholders::_1));
+            "/scan", rclcpp::SensorDataQoS(), std::bind(&MappingNode::scanCallback, this, std::placeholders::_1));
 
         map_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>("/map", rclcpp::QoS(1).transient_local());
 
@@ -44,6 +42,7 @@ private:
 
     void scanCallback(sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
+        if (scan->ranges.empty()) return;
         if (!first_scan_received_){
             RCLCPP_INFO(this->get_logger(), "First scan received. Start to mapping...");
             first_scan_received_ = true;
@@ -52,7 +51,7 @@ private:
         geometry_msgs::msg::Pose scan_start_pose;
         try {
             geometry_msgs::msg::TransformStamped tf =
-                tf_buffer_->lookupTransform("odom", "lidar_link", scan->header.stamp,
+                tf_buffer_->lookupTransform("odom", scan->header.frame_id, rclcpp::Time(scan->header.stamp),
                                             rclcpp::Duration::from_seconds(0.1));
             scan_start_pose.position.x  = tf.transform.translation.x;
             scan_start_pose.position.y  = tf.transform.translation.y;
@@ -64,11 +63,11 @@ private:
         }
 
         // Lookup pose at last ray, falls back to start pose
-        const rclcpp::Time scan_end_time = scan->header.stamp + rclcpp::Duration::from_seconds(scan->scan_time);
+        const rclcpp::Time scan_end_time = scanLastRayTime(*scan);
         geometry_msgs::msg::Pose scan_end_pose = scan_start_pose;
         try {
             geometry_msgs::msg::TransformStamped tf =
-                tf_buffer_->lookupTransform("odom", "lidar_link", scan_end_time,
+                tf_buffer_->lookupTransform("odom", scan->header.frame_id, scan_end_time,
                                             rclcpp::Duration::from_seconds(0.1));
             scan_end_pose.position.x  = tf.transform.translation.x;
             scan_end_pose.position.y  = tf.transform.translation.y;
@@ -86,17 +85,8 @@ private:
 
     void updateGrid(const MovingLaserScan& scan)
     {
-        for (const auto& ray : scan)
-        {
-            auto ray_cells = bresenhamRayTrace(
-                ray.origin.x, ray.origin.y, ray.theta, ray.range, grid_);
-
-            if (!ray_cells.empty()) {
-                for (size_t j = 0; j + 1 < ray_cells.size(); ++j) {
-                    // TODO: we fill up the occupancy grid here
-                    // Hint: use markCellFree() or markCellOccupied()
-                }
-            }
+        for (const auto& ray : scan) {
+            grid_.integrateRay(ray.origin.x, ray.origin.y, ray.theta, ray.range);
         }
     }
 

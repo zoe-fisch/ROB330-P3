@@ -20,7 +20,7 @@ setup(
     maintainer='Shaw',
     maintainer_email='xssun@umich.edu',
     description='MBot vision package for camera, rectification, and AprilTag detection',
-    license='TODO: License declaration',
+    license='NOASSERTION',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [

@@ -1,30 +1,11 @@
 #include "planners/astar_planner.hpp"
 
 #include <cmath>
-#include <limits>
+#include <algorithm>
+#include <functional>
 
 float AStarPlanner::heuristic(int x1, int y1, int x2, int y2) {
     return std::hypot(x2 - x1, y2 - y1);
-}
-
-bool AStarPlanner::isLineFree(const ObstacleDistanceGrid& dist_grid, float x0, float y0, float x1, float y1)
-{
-    const float step = dist_grid.getResolution() * 0.5f;
-    const float dx = x1 - x0;
-    const float dy = y1 - y0;
-    const float dist = std::hypot(dx, dy);
-    const float angle = std::atan2(dy, dx);
-
-    for (float d = 0.0f; d <= dist; d += step) {
-        float x = x0 + std::cos(angle) * d;
-        float y = y0 + std::sin(angle) * d;
-        int grid_x = static_cast<int>((x - dist_grid.getOrigin().position.x) / dist_grid.getResolution());
-        int grid_y = static_cast<int>((y - dist_grid.getOrigin().position.y) / dist_grid.getResolution());
-        if (!dist_grid.isCellInGrid(grid_x, grid_y) || dist_grid.getDistance(grid_x, grid_y) < 0.15f) {
-            return false;
-        }
-    }
-    return true;
 }
 
 std::vector<std::pair<int, int>> AStarPlanner::backtraceWaypoints(
@@ -50,18 +31,23 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
                             mbot_interfaces::msg::Pose2DArray& path) {
     path.poses.clear();
 
-    mbot_interfaces::msg::Pose2DArray raw_path;
-    
-    const float res = dist_grid.getResolution();
-    const float origin_x  = dist_grid.getOrigin().position.x;
-    const float origin_y  = dist_grid.getOrigin().position.y;
+    const double res = dist_grid.getResolution();
+    const auto origin = dist_grid.getOrigin().position;
     const int width = dist_grid.getWidth();
+    if (!(res > 0.0) || width <= 0 || dist_grid.getHeight() <= 0) return false;
 
-    // start and goal in grid coordinates
-    int start_x = static_cast<int>((start.x - origin_x) / res);
-    int start_y = static_cast<int>((start.y - origin_y) / res);
-    int goal_x = static_cast<int>((goal.x - origin_x) / res);
-    int goal_y = static_cast<int>((goal.y - origin_y) / res);
+    const int start_x = std::floor((start.x - origin.x) / res);
+    const int start_y = std::floor((start.y - origin.y) / res);
+    const int goal_x = std::floor((goal.x - origin.x) / res);
+    const int goal_y = std::floor((goal.y - origin.y) / res);
+
+    const auto visible = [&](int x, int y, int nx, int ny) {
+        return dist_grid.isLineFree(x, y, nx, ny, inflation_radius_);
+    };
+    if (!visible(start_x, start_y, start_x, start_y) ||
+        !visible(goal_x, goal_y, goal_x, goal_y)) {
+        return false;
+    }
 
     // Min-priority queue
     std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<>> open;
@@ -86,123 +72,60 @@ bool AStarPlanner::planPath(const ObstacleDistanceGrid& dist_grid,
         AStarNode current = open.top();
         open.pop();
 
-        int curr_idx = toIndex(current.x, current.y, width);
+        const int curr_idx = toIndex(current.x, current.y, width);
+        if (current.cost > cost_so_far.at(curr_idx)) continue;
+
         if (curr_idx == goal_idx) {
-            // goal reached, generate the path
-            auto waypoints_idx = backtraceWaypoints(came_from, goal_idx, width);
-            for (size_t i = 0; i < waypoints_idx.size(); ++i) {
-                const auto& [x, y] = waypoints_idx[i];
-                // generate world frame pose
-                geometry_msgs::msg::Pose2D pose;
-                pose.x = (x + 0.5f) * res + origin_x;
-                pose.y = (y + 0.5f) * res + origin_y;
-                // TODO: how do we determine the heading?
-                // pose.theta = ?
-                // fix 
-                if (i < waypoints_idx.size() - 1) {
-                    const std::pair<int, int>& next = waypoints_idx[i + 1];
-                    pose.theta = std::atan2(next.second - y, next.first - x);
-                } 
-                else {
-                    pose.theta = goal.theta;  
+            const auto cells = backtraceWaypoints(came_from, goal_idx, width);
+            if (cells.size() > 1) {
+                size_t current_cell = 0;
+                while (true) {
+                    const auto [x, y] = cells[current_cell];
+                    geometry_msgs::msg::Pose2D pose;
+                    pose.x = origin.x + (x + 0.5) * res;
+                    pose.y = origin.y + (y + 0.5) * res;
+                    path.poses.push_back(pose);
+                    if (current_cell == cells.size() - 1) break;
+
+                    size_t farthest = cells.size() - 1;
+                    while (farthest > current_cell + 1 &&
+                           !visible(x, y, cells[farthest].first, cells[farthest].second)) {
+                        --farthest;
+                    }
+                    current_cell = farthest;
                 }
-                raw_path.poses.push_back(pose);
             }
-            path = smoothPath(dist_grid, raw_path);
+
+            if (!path.poses.empty() && path.poses.back().x == goal.x &&
+                path.poses.back().y == goal.y) {
+                path.poses.back() = goal;
+            } else {
+                path.poses.push_back(goal);
+            }
+
+            for (size_t i = 1; i < path.poses.size(); ++i) {
+                auto& prev = path.poses[i - 1];
+                const auto& next = path.poses[i];
+                prev.theta = std::atan2(next.y - prev.y, next.x - prev.x);
+            }
             return true;
         }
 
         for (const auto& offset : connected_neighbors) {
-            int nx = current.x + offset.x;
-            int ny = current.y + offset.y;
+            const int nx = current.x + offset.x;
+            const int ny = current.y + offset.y;
+            if (!visible(current.x, current.y, nx, ny)) continue;
 
-            // TODO: check neighbors, calcualte costs, then update cost_so_far, came_from, and open
-            // hints: utilize dist_grid.getDistance() and dist_grid.getOccupancy()
-            if (!dist_grid.isCellInGrid(nx, ny)){
-                continue;
-            }
-            if (dist_grid.getOccupancy(nx, ny) != 0){
-                continue;
-            }
+            const int neighbor = toIndex(nx, ny, width);
+            const float candidate = current.cost + heuristic(current.x, current.y, nx, ny);
+            const auto old = cost_so_far.find(neighbor);
+            if (old != cost_so_far.end() && candidate >= old->second) continue;
 
-            if (dist_grid.getDistance(nx, ny) < inflation_radius_){
-                continue;
-            }
-            if (offset.x != 0 && offset.y != 0) {
-                if (!dist_grid.isCellInGrid(current.x + offset.x, current.y) ||
-                    !dist_grid.isCellInGrid(current.x, current.y + offset.y)) {
-                    continue;
-                }
-
-                if (dist_grid.getOccupancy(current.x + offset.x, current.y) != 0 ||
-                    dist_grid.getOccupancy(current.x, current.y + offset.y) != 0) {
-                    continue;
-                }
-
-                if (dist_grid.getDistance(current.x + offset.x, current.y) < inflation_radius_ ||
-                    dist_grid.getDistance(current.x, current.y + offset.y) < inflation_radius_) {
-                    continue;
-                }
-            }
-            int neighbor = toIndex(nx, ny, width);
-            double cost;
-            if (!dist_grid.isCellInGrid(nx, ny)) {
-                continue;
-            }
-
-            if (dist_grid.getDistance(nx, ny) < 0.15f) {
-                continue;
-            }
-
-            // fix
-            if (offset.x != 0 && offset.y != 0) {
-                if (dist_grid.getDistance(current.x + offset.x, current.y) < 0.15f ||
-                    dist_grid.getDistance(current.x, current.y + offset.y) < 0.15f) {
-                    continue;
-                }
-            }
-
-            int neighbor = toIndex(nx, ny, width);
-
-            if (offset.x != 0 && offset.y != 0) {
-                cost = std::sqrt(2.0f);
-            } 
-            else {
-                cost = 1;
-            }
-            double updated_cost = cost_so_far[curr_idx] + cost;
-            bool not_seen_yet = cost_so_far.count(neighbor) == 0;
-            if (not_seen_yet || updated_cost < cost_so_far[neighbor]) {
-                cost_so_far[neighbor] = updated_cost;
-                came_from[neighbor] = curr_idx;
-                open.push({nx, ny, updated_cost, updated_cost + heuristic(nx, ny, goal_x, goal_y)});
-            }
-        
+            cost_so_far[neighbor] = candidate;
+            came_from[neighbor] = curr_idx;
+            open.push({nx, ny, candidate, candidate + heuristic(nx, ny, goal_x, goal_y)});
         }
     }
 
     return false;
-}
-
-// fix 
-mbot_interfaces::msg::Pose2DArray AStarPlanner::smoothPath(const ObstacleDistanceGrid& dist_grid, const mbot_interfaces::msg::Pose2DArray& raw_path) {
-    mbot_interfaces::msg::Pose2DArray pruned;
-    if (raw_path.poses.empty()) {
-        return pruned;
-    }
-    pruned.poses.push_back(raw_path.poses[0]);
-    size_t current = 0;
-    while (current < raw_path.poses.size() - 1) {
-        size_t farthest = current + 1;
-        for (size_t candidate = current + 1; candidate < raw_path.poses.size(); ++candidate) {
-            const geometry_msgs::msg::Pose2D& from = raw_path.poses[current];
-            const geometry_msgs::msg::Pose2D& to = raw_path.poses[candidate];
-            if (isLineFree(dist_grid, from.x, from.y, to.x, to.y)) {
-                farthest = candidate;
-            }
-        }
-        pruned.poses.push_back(raw_path.poses[farthest]);
-        current = farthest;
-    }
-    return pruned;
 }

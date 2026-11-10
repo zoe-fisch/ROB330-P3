@@ -32,48 +32,42 @@ bool ActionModel::processOdometry(const nav_msgs::msg::Odometry& odom)
     const double delta_trans  = std::sqrt(dx*dx + dy*dy);
     const double delta_theta  = angleDiff(theta_curr, theta_prev);
 
-    rot1_ = angleDiff(std::atan2(dy, dx), theta_prev);
-    trans_ = delta_trans;
-    rot2_ = angleDiff(delta_theta, rot1_);
-
-    const bool moved = (delta_trans >= min_trans_) ||
-        (std::abs(delta_theta) >= min_rot_);
-
-    if (moved) {
-        (void)rot1_; (void)rot2_; (void)trans_;
-        // TODO: Compute the standard deviation (sqrt of variance) for each motion component.
-        // Noise scales with motion: std = sqrt(k1 * motion)
-        // k1, k2 are defined in action_model.hpp.
-        // rot1_std_  = ?
-        // trans_std_ = ?
-        // rot2_std_  = ?
+    if (delta_trans < min_trans_ && std::abs(delta_theta) < min_rot_) {
+        return false;
     }
 
-    prev_odom_ = odom;
+    rot1_ = delta_trans > 1e-6 ? angleDiff(std::atan2(dy, dx), theta_prev) : 0.0;
+    trans_ = delta_trans;
+    // Represent reverse motion as negative translation to avoid two spurious half-turns.
+    if (std::abs(rot1_) > M_PI_2) {
+        rot1_ = angleDiff(rot1_, M_PI);
+        trans_ = -trans_;
+    }
+    rot2_ = angleDiff(delta_theta, rot1_);
 
-    return moved;
+    rot1_std_ = std::sqrt(k1_ * std::abs(rot1_));
+    trans_std_ = std::sqrt(k2_ * std::abs(trans_));
+    rot2_std_ = std::sqrt(k1_ * std::abs(rot2_));
+
+    // Retain sub-threshold motion for the next update.
+    prev_odom_ = odom;
+    return true;
 }
 
 geometry_msgs::msg::Pose ActionModel::propagateParticle(const geometry_msgs::msg::Pose& pose)
 {
-    // Sample noisy motion components
-    std::normal_distribution<double> rot1_distribution(rot1_,  rot1_std_);
-    std::normal_distribution<double> trans_distribution(trans_, trans_std_);
-    std::normal_distribution<double> rot2_distribution (rot2_,  rot2_std_);
+    const auto sample = [this](double mean, double stddev) {
+        return stddev > 0.0 ? std::normal_distribution<double>(mean, stddev)(random_gen) : mean;
+    };
+    const double sampled_rot1 = sample(rot1_, rot1_std_);
+    const double sampled_trans = sample(trans_, trans_std_);
+    const double sampled_rot2 = sample(rot2_, rot2_std_);
 
-    const double sampled_rot1   = rot1_distribution(random_gen);
-    const double sampled_trans  = trans_distribution(random_gen);
-    const double sampled_rot2   = rot2_distribution(random_gen);
-
-    // Current heading of the particle
-    const double theta = yawFromQuaternion(pose.orientation);
-
-    // TODO: with sampled R-T-R values, what is the new pose of the particle
+    const double heading = yawFromQuaternion(pose.orientation) + sampled_rot1;
     geometry_msgs::msg::Pose new_pose = pose;
-    (void)sampled_rot1; (void)sampled_rot2; (void)sampled_trans; (void)theta;
-    // new_pose.position.x = ?
-    // new_pose.position.y = ?
-    // new_pose.orientation = quaternionFromYaw(?);
+    new_pose.position.x += sampled_trans * std::cos(heading);
+    new_pose.position.y += sampled_trans * std::sin(heading);
+    new_pose.orientation = quaternionFromYaw(heading + sampled_rot2);
 
     return new_pose;
 }

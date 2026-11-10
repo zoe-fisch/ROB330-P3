@@ -9,57 +9,6 @@ float ThetaStarPlanner::heuristic(int x1, int y1, int x2, int y2)
     return std::hypot(x2 - x1, y2 - y1);
 }
 
-// The endpoints are grid-cell centers expressed in world coordinates.
-bool ThetaStarPlanner::isLineFree(const ObstacleDistanceGrid& grid,
-                                  float x0, float y0, float x1, float y1)
-{
-    const auto origin = grid.getOrigin().position;
-    const double res = grid.getResolution();
-
-    int x = std::floor((x0 - origin.x) / res);
-    int y = std::floor((y0 - origin.y) / res);
-    const int end_x = std::floor((x1 - origin.x) / res);
-    const int end_y = std::floor((y1 - origin.y) / res);
-
-    auto clear = [&](int cx, int cy) {
-        return grid.isCellInGrid(cx, cy)
-            && grid.getOccupancy(cx, cy) == 0
-            && grid.getDistance(cx, cy) >= inflation_radius_;
-    };
-
-    const int dx = std::abs(end_x - x);
-    const int dy = std::abs(end_y - y);
-    const int sx = (end_x > x) - (end_x < x);
-    const int sy = (end_y > y) - (end_y < y);
-    int steps_x = 0;
-    int steps_y = 0;
-
-    while (clear(x, y)) {
-        if (x == end_x && y == end_y) {
-            return true;
-        }
-
-        // Determine which grid boundary the segment crosses next.
-        const auto cross_x = (2LL * steps_x + 1) * dy;
-        const auto cross_y = (2LL * steps_y + 1) * dx;
-
-        // At an exact corner, check both side cells before moving diagonally.
-        if (cross_x == cross_y && (!clear(x + sx, y) || !clear(x, y + sy))) {
-            return false;
-        }
-        if (cross_x <= cross_y) {
-            x += sx;
-            ++steps_x;
-        }
-        if (cross_y <= cross_x) {
-            y += sy;
-            ++steps_y;
-        }
-    }
-
-    return false;
-}
-
 std::vector<std::pair<int, int>> ThetaStarPlanner::backtraceWaypoints(
     const std::unordered_map<int, int>& came_from, int idx, int width)
 {
@@ -100,7 +49,7 @@ bool ThetaStarPlanner::planPath(const ObstacleDistanceGrid& grid,
     auto worldX = [&](int x) { return origin.x + (x + 0.5) * res; };
     auto worldY = [&](int y) { return origin.y + (y + 0.5) * res; };
     auto visible = [&](int x, int y, int nx, int ny) {
-        return isLineFree(grid, worldX(x), worldY(y), worldX(nx), worldY(ny));
+        return grid.isLineFree(x, y, nx, ny, inflation_radius_);
     };
 
     if (!grid.isCellInGrid(sx, sy) || !grid.isCellInGrid(gx, gy)

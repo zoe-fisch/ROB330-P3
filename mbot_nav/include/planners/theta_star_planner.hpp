@@ -33,9 +33,6 @@ private:
     std::vector<std::pair<int, int>> backtraceWaypoints(
         const std::unordered_map<int, int>& came_from, int goal_idx, int width);
 
-    bool isLineFree(const ObstacleDistanceGrid& dist_grid,
-                    float x0, float y0, float x1, float y1);
-
     int toIndex(int x, int y, int width) const { return y * width + x; }
 
     float inflation_radius_ = 0.2f;

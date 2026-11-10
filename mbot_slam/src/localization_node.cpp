@@ -14,6 +14,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include "common/particle_filter.hpp"
+#include "common/scan_transforms.hpp"
 #include "common/utils.hpp"
 
 class LocalizationNode final : public rclcpp::Node
@@ -54,7 +55,7 @@ public:
             std::bind(&LocalizationNode::mapCallback, this, std::placeholders::_1));
 
         scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            "/scan", 20,
+            "/scan", rclcpp::SensorDataQoS(),
             std::bind(&LocalizationNode::scanCallback, this, std::placeholders::_1));
 
         init_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -135,6 +136,7 @@ private:
     // Scan callback
     void scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan)
     {
+        if (scan->ranges.empty()) return;
         if (!have_map_) return;
 
         if (!have_initial_pose_) {
@@ -147,31 +149,33 @@ private:
         }
 
         nav_msgs::msg::Odometry odom_msg;
+        MovingLaserScan::RelativePoses scan_poses;
         try {
-            const rclcpp::Time scan_end_time = scan->header.stamp + rclcpp::Duration::from_seconds(scan->scan_time);
+            const rclcpp::Time scan_end_time = scanLastRayTime(*scan);
             geometry_msgs::msg::TransformStamped tf_odom_base =
                 tf_buffer_->lookupTransform("odom", "base_footprint", scan_end_time,
                                             rclcpp::Duration::from_seconds(0.1));
 
+            scan_poses = lookupScanRelativePoses(*tf_buffer_, *scan, tf_odom_base);
             odom_msg.header = tf_odom_base.header;
             odom_msg.pose.pose.position.x = tf_odom_base.transform.translation.x;
             odom_msg.pose.pose.position.y = tf_odom_base.transform.translation.y;
             odom_msg.pose.pose.position.z = tf_odom_base.transform.translation.z;
             odom_msg.pose.pose.orientation = tf_odom_base.transform.rotation;
         } catch (tf2::TransformException &ex) {
-            RCLCPP_WARN(get_logger(), "Failed to lookup odom transform: %s", ex.what());
+            RCLCPP_WARN(get_logger(), "Failed to look up scan transforms: %s", ex.what());
             return;
         }
 
-        const auto est_pose = particle_filter_->update(odom_msg, *scan, map_);
+        const auto est_pose = particle_filter_->update(odom_msg, *scan, scan_poses, map_);
 
-        publishEstPose(est_pose, scan->header.stamp);
-        publishCloud(scan->header.stamp);
-        publishEstPath(est_pose, scan->header.stamp);
-        publishOdomPath(odom_msg.pose.pose, scan->header.stamp);
+        publishEstPose(est_pose, odom_msg.header.stamp);
+        publishCloud(odom_msg.header.stamp);
+        publishEstPath(est_pose, odom_msg.header.stamp);
+        publishOdomPath(odom_msg.pose.pose, odom_msg.header.stamp);
 
         if (publish_tf_) {
-            broadcastTf(est_pose, odom_msg.pose.pose, scan->header.stamp);
+            broadcastTf(est_pose, odom_msg.pose.pose, odom_msg.header.stamp);
         }
     }
 

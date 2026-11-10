@@ -20,6 +20,9 @@ public:
     int8_t getOccupancy(int x, int y) const;
     bool isCellInGrid(int x, int y) const;
 
+    bool isFree(int x, int y) const;
+    bool isLineFree(int x, int y, int end_x, int end_y, float clearance) const;
+
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
     float getResolution() const { return resolution_; }

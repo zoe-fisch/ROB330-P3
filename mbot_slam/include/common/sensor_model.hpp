@@ -19,10 +19,9 @@ public:
                       const nav_msgs::msg::OccupancyGrid& map) const;
 
     // Apply sensor model to a proposal cloud: weight each particle by scan likelihood.
-    // parent_cloud is the cloud before propagation, used for scan interpolation.
     nav2_msgs::msg::ParticleCloud weightParticles(const nav2_msgs::msg::ParticleCloud& proposal,
-                                                  const nav2_msgs::msg::ParticleCloud& parent_cloud,
                                                   const sensor_msgs::msg::LaserScan&   scan,
+                                                  const MovingLaserScan::RelativePoses& scan_poses,
                                                   const nav_msgs::msg::OccupancyGrid&  map) const;
 
 private:
